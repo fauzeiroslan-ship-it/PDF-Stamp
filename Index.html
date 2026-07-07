@@ -1,0 +1,1456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Stamper & Smart Naming Workflow</title>
+    
+    <!-- iOS PWA Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MIGB Stamper">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <!-- Link to Manifest -->
+    <link rel="manifest" href="manifest.json">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            700: '#075985',
+                        },
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- PDFJS and jsPDF Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- Google Fonts for professional appearance -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Playwrite+AU+VIC:wght@300&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .signature-font {
+            font-family: 'Playwrite AU VIC', cursive;
+        }
+        .mono-font {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Mobile scrollbar hiding */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col antialiased">
+
+    <!-- Global Header -->
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="bg-primary-500 p-2.5 rounded-xl shadow-lg shadow-primary-500/20">
+                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                    STAMPFLOW <span class="bg-emerald-500/10 text-emerald-400 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-500/20">Active Draft</span>
+                </h1>
+                <p class="text-xs text-slate-400">Mobile Workflow & Signature Injection Engine</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-4 text-xs text-slate-400 bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-700/50">
+            <span class="flex items-center gap-1.5">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                System Date: <strong class="text-white font-mono">2026-07-06</strong>
+            </span>
+        </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 p-6 max-w-[1600px] w-full mx-auto">
+        
+        <!-- Left Column: Controls and Configurations (5 Cols) -->
+        <section class="lg:col-span-5 flex flex-col gap-6 order-2 lg:order-1">
+            
+            <!-- Toast Notifications Area -->
+            <div id="toastContainer" class="fixed top-20 right-6 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+            <!-- Signature & Stamp Config Card -->
+            <div class="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-6 flex flex-col gap-6 shadow-xl">
+                <div>
+                    <h2 class="text-base font-bold text-white flex items-center gap-2">
+                        <span class="w-1.5 h-4 bg-primary-500 rounded-full"></span>
+                        1. Signature Setup
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-1">Draw or write your stamp signature here to use in the document simulation.</p>
+                </div>
+
+                <!-- Signature Input Tabs -->
+                <div class="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
+                    <button id="tabDraw" onclick="switchSigTab('draw')" class="flex-1 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-white shadow-sm transition">Draw Signature</button>
+                    <button id="tabType" onclick="switchSigTab('type')" class="flex-1 py-2 text-xs font-semibold rounded-lg text-slate-400 hover:text-white transition">Type Signature</button>
+                </div>
+
+                <!-- Drawing Canvas Container -->
+                <div id="sigDrawContainer" class="flex flex-col gap-3">
+                    <div class="relative bg-white rounded-xl overflow-hidden border-2 border-slate-700">
+                        <canvas id="sigCanvas" class="w-full h-32 cursor-crosshair block bg-white"></canvas>
+                        <button onclick="clearSigCanvas()" class="absolute bottom-2 right-2 text-[10px] bg-slate-900/80 hover:bg-slate-800 text-white px-2.5 py-1.5 rounded-md font-semibold transition flex items-center gap-1 border border-slate-700">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            Clear
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Typing Signature Container -->
+                <div id="sigTypeContainer" class="hidden flex flex-col gap-3">
+                    <input type="text" id="sigTextInput" oninput="updateTypedSignature()" value="Authorized Rep" class="bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500 transition text-white font-mono" placeholder="Type name...">
+                    <div class="bg-white text-slate-900 rounded-xl p-4 flex items-center justify-center min-h-24 border border-slate-300">
+                        <p id="sigTextPreview" class="signature-font text-3xl select-none text-blue-800">Authorized Rep</p>
+                    </div>
+                </div>
+
+                <!-- Stamp Setup Options -->
+                <hr class="border-slate-700/60">
+
+                <div class="flex flex-col gap-4">
+                    <div>
+                        <h2 class="text-base font-bold text-white flex items-center gap-2">
+                            <span class="w-1.5 h-4 bg-primary-500 rounded-full"></span>
+                            2. Stamp Design Options
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-1">Configure your custom uploaded rubber stamp format or badge design.</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="col-span-2">
+                            <label class="block text-xs text-slate-400 mb-1.5 font-medium">Stamp Style</label>
+                            <select id="stampStyle" onchange="toggleStampFields(); renderStampConfigCanvas();" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-primary-500 font-semibold">
+                                <option value="address" selected>Menara IGB Address Stamp (Uploaded Image Style)</option>
+                                <option value="badge">Classic Security Badge</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Custom Address Stamp Inputs (Visible when 'address' style selected) -->
+                    <div id="addressFieldsContainer" class="flex flex-col gap-3">
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1.5">Stamp Text Lines</label>
+                            <textarea id="stampAddressLines" oninput="renderStampConfigCanvas()" rows="6" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary-500 font-mono leading-relaxed resize-none">BUILDING MANAGEMENT
+Suite 10.02, 10th Floor, Menara IGB
+Mid Valley City
+Lingkaran Syed Putra
+59200 Kuala Lumpur
+Tel: 03-2287 9686 Fax: 03-2287 9698</textarea>
+                        </div>
+                    </div>
+
+                    <!-- Custom Security Badge Inputs (Visible when 'badge' style selected) -->
+                    <div id="badgeFieldsContainer" class="hidden flex flex-col gap-3">
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1.5">Stamp Badge Text</label>
+                            <input type="text" id="stampBadgeText" oninput="renderStampConfigCanvas()" value="VERIFIED OK" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-primary-500 font-bold tracking-wider" placeholder="e.g. APPROVED">
+                        </div>
+                    </div>
+
+                    <!-- Color & Distressed sliders -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1.5">Stamp Ink Color</label>
+                            <select id="stampColor" onchange="renderStampConfigCanvas()" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-primary-500">
+                                <option value="#0f4c81" selected>Blue Ink (Matching Image)</option>
+                                <option value="#b91c1c">Red Crimson</option>
+                                <option value="#047857">Emerald Green</option>
+                                <option value="#334155">Carbon Black</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1.5 flex justify-between">
+                                <span>Distress Level</span>
+                                <span id="distressValLabel" class="text-amber-400 font-mono font-bold">15%</span>
+                            </label>
+                            <div class="flex items-center h-10">
+                                <input type="range" id="stampDistress" min="0" max="40" value="15" oninput="updateDistressLabel(); renderStampConfigCanvas();" class="w-full h-2 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-primary-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Stamp Configuration Render -->
+                    <div class="bg-slate-900 rounded-xl p-3 border border-slate-700 flex flex-col items-center justify-center gap-2">
+                        <span class="text-[10px] uppercase font-bold text-slate-500 tracking-widest self-start">Interactive Stamp Output Mock</span>
+                        <div class="w-full bg-white rounded-lg p-2 flex items-center justify-center">
+                            <canvas id="stampConfigCanvas" width="300" height="150" class="bg-transparent rounded-lg block max-w-full"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Smart Counter Database Admin Panel -->
+            <div class="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-6 flex flex-col gap-4 shadow-xl">
+                <div>
+                    <h2 class="text-base font-bold text-white flex items-center gap-2">
+                        <span class="w-1.5 h-4 bg-amber-500 rounded-full"></span>
+                        3. Smart Memory Storage
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-1">These values are retrieved programmatically upon naming. You can override them below.</p>
+                </div>
+
+                <div class="grid grid-cols-4 gap-2 text-center">
+                    <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-700/60">
+                        <span class="block text-[11px] font-bold text-slate-400">MIGB</span>
+                        <input type="number" id="db_MIGB" onchange="saveDBOverride('MIGB')" min="0" value="0" class="w-full text-center bg-transparent text-sm font-semibold mt-1 text-amber-400 font-mono focus:outline-none">
+                    </div>
+                    <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-700/60">
+                        <span class="block text-[11px] font-bold text-slate-400">CPS</span>
+                        <input type="number" id="db_CPS" onchange="saveDBOverride('CPS')" min="0" value="4" class="w-full text-center bg-transparent text-sm font-semibold mt-1 text-amber-400 font-mono focus:outline-none">
+                    </div>
+                    <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-700/60">
+                        <span class="block text-[11px] font-bold text-slate-400">CPN</span>
+                        <input type="number" id="db_CPN" onchange="saveDBOverride('CPN')" min="0" value="0" class="w-full text-center bg-transparent text-sm font-semibold mt-1 text-amber-400 font-mono focus:outline-none">
+                    </div>
+                    <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-700/60">
+                        <span class="block text-[11px] font-bold text-slate-400">MSP</span>
+                        <input type="number" id="db_MSP" onchange="saveDBOverride('MSP')" min="0" value="12" class="w-full text-center bg-transparent text-sm font-semibold mt-1 text-amber-400 font-mono focus:outline-none">
+                    </div>
+                </div>
+                <div class="flex justify-between items-center text-xs">
+                    <span class="text-slate-500 italic">Database status: Ready</span>
+                    <button onclick="resetAllCounters()" class="text-slate-400 hover:text-white underline transition">Reset All Memory Counters</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Column: Interactive Phone Mockup (7 Cols) -->
+        <section class="lg:col-span-7 flex flex-col items-center justify-start order-1 lg:order-2">
+            
+            <!-- Mobile Shell Wrapper -->
+            <div class="relative w-full max-w-[410px] bg-slate-950 border-[10px] border-slate-800 rounded-[50px] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)] aspect-[9/19.5] flex flex-col overflow-hidden ring-4 ring-slate-800/20">
+                
+                <!-- Internal Phone Speaker & Camera Notch -->
+                <div class="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-7 bg-slate-800 rounded-b-2xl z-50 flex items-center justify-center gap-1.5 px-4">
+                    <div class="w-12 h-1 bg-slate-900 rounded-full"></div>
+                    <div class="w-2.5 h-2.5 bg-slate-900 rounded-full border border-slate-800/40"></div>
+                </div>
+
+                <!-- Theme / System Header OS Toggle -->
+                <div class="bg-slate-900 px-6 pt-8 pb-3 flex items-center justify-between text-xs text-slate-400 border-b border-slate-800/80">
+                    <div class="font-bold tracking-tight text-white flex items-center gap-1 font-mono">
+                        <span>12:10 PM</span>
+                        <span class="text-[10px] font-normal text-slate-500">Kuala Lumpur</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 text-xs">
+                        <!-- OS System Indicator Toggles -->
+                        <span id="osBadge" class="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded text-[9px] font-bold">iOS 19.5</span>
+                        <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        <span class="font-mono text-[10px]">99%</span>
+                    </div>
+                </div>
+
+                <!-- Active Phone screen content wrapper -->
+                <div class="flex-1 bg-slate-900/40 flex flex-col relative overflow-hidden text-slate-100 p-4">
+                    
+                    <!-- --------------------------------------- -->
+                    <!-- PHONE SCREEN STATE 1: IMPORT HOME PAGE -->
+                    <!-- --------------------------------------- -->
+                    <div id="screenUpload" class="flex-1 flex flex-col justify-between py-4">
+                        <div class="text-center pt-8 px-2">
+                            <div class="bg-primary-500/10 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-primary-500/20">
+                                <svg class="w-8 h-8 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                </svg>
+                            </div>
+                            <h3 class="text-lg font-bold text-white">Import PDF</h3>
+                            <p class="text-xs text-slate-400 mt-2 max-w-[280px] mx-auto">Upload any local PDF or test right away using our generated sample invoice.</p>
+                        </div>
+
+                        <!-- User Actions Zone -->
+                        <div class="flex flex-col gap-3 px-2">
+                            <label class="cursor-pointer bg-primary-600 hover:bg-primary-700 text-white font-semibold py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2.5 shadow-lg shadow-primary-600/10 text-sm transition text-center">
+                                <svg class="w-5 h-5 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                                Choose PDF Document
+                                <input type="file" id="pdfFileInput" accept="application/pdf" class="hidden" onchange="handleFileSelect(event)">
+                            </label>
+
+                            <button onclick="loadSamplePDF()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700/60 text-slate-200 font-semibold py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2 text-sm transition">
+                                <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                                Try with Sample PDF
+                            </button>
+                        </div>
+
+                        <div class="text-center">
+                            <span class="text-[10px] text-slate-500 uppercase font-semibold tracking-wider">Stamp Placement Auto-Pinned (Bottom Left)</span>
+                        </div>
+                    </div>
+
+
+                    <!-- --------------------------------------- -->
+                    <!-- PHONE SCREEN STATE 2: PDF PREVIEW WORKSPACE -->
+                    <!-- --------------------------------------- -->
+                    <div id="screenEdit" class="hidden flex-1 flex flex-col justify-between overflow-hidden">
+                        
+                        <!-- Header Status -->
+                        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                            <button onclick="resetToUpload()" class="text-slate-400 hover:text-white flex items-center gap-1 text-xs">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" /></svg>
+                                Back
+                            </button>
+                            <span class="text-xs font-semibold text-white tracking-tight truncate max-w-[160px]" id="currentFileName">document.pdf</span>
+                            <span class="text-[10px] font-bold text-slate-500" id="pageNumDisplay">Page 1 of 1</span>
+                        </div>
+
+                        <!-- Real PDF / Mock Viewer Body -->
+                        <div class="flex-1 my-3 bg-slate-950 rounded-2xl relative overflow-hidden flex items-center justify-center border border-slate-800/80">
+                            <!-- Visual PDF Canvas wrapper with custom scaled rendering -->
+                            <div class="w-full h-full overflow-auto flex items-center justify-center p-2 no-scrollbar" id="pdfViewerScroll">
+                                <div class="relative bg-white shadow-xl" id="canvasContainer">
+                                    <canvas id="pdfPreviewCanvas" class="block max-w-full h-auto"></canvas>
+                                    
+                                    <!-- Animated Holographic/Virtual Box of Placement Area at bottom-left corner -->
+                                    <div class="absolute bottom-2 left-2 border-2 border-dashed border-emerald-500 bg-emerald-500/10 rounded-lg p-1.5 flex flex-col items-start gap-0.5 select-none pointer-events-none transform origin-bottom-left transition-all duration-300" style="width: 140px; height: 75px;">
+                                        <div class="flex items-center gap-1">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                                            <span class="text-[7px] text-emerald-400 font-bold uppercase tracking-widest">Pin-Target</span>
+                                        </div>
+                                        <div class="w-full h-0.5 bg-emerald-500/20 my-0.5"></div>
+                                        <span class="text-[5px] text-emerald-300 font-mono">X: 35pt | Y: PageBottom</span>
+                                        <span class="text-[6px] text-amber-300 font-bold" id="stampTargetStyle">Menara IGB Stamp</span>
+                                        <span class="text-[5px] text-emerald-300 font-mono" id="targetDateStr">2026-07-06</span>
+                                        
+                                        <!-- Interactive signature placement banner sitting PHYSICALLY ABOVE the stamp indicator -->
+                                        <div class="absolute -top-10 left-4 bg-blue-500/80 border border-blue-400 text-white rounded px-2 py-0.5 font-bold flex items-center gap-1 text-[8px] tracking-wide animate-pulse">
+                                            <span>✍️ Signature Area</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Animated Target Area for Sequence ID Stamp at the TOP-RIGHT corner -->
+                                    <div class="absolute top-2 right-2 border-2 border-dashed border-amber-500 bg-amber-500/10 rounded-lg p-1.5 flex flex-col items-end gap-0.5 select-none pointer-events-none transform origin-top-right transition-all duration-300" style="width: 130px; height: 42px;">
+                                        <div class="flex items-center gap-1">
+                                            <span class="text-[7px] text-amber-400 font-bold uppercase tracking-widest">Seq ID Stamp</span>
+                                            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+                                        </div>
+                                        <div class="w-full h-0.5 bg-amber-500/20 my-0.5"></div>
+                                        <span class="text-[7.5px] text-white font-mono font-bold" id="topRightPreviewLabel">CPS - 005</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Floating Page Switchers for multi-page docs -->
+                            <div id="pageNavControls" class="absolute bottom-3 right-3 flex items-center gap-1 bg-slate-900/90 border border-slate-700/60 p-1.5 rounded-xl shadow-lg">
+                                <button onclick="navigatePage(-1)" class="p-1 hover:bg-slate-800 text-white rounded transition">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+                                </button>
+                                <span class="text-[10px] px-1 text-slate-300 font-bold font-mono" id="navIndicator">1/1</span>
+                                <button onclick="navigatePage(1)" class="p-1 hover:bg-slate-800 text-white rounded transition">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Bottom action panel -->
+                        <div class="flex flex-col gap-2 pt-2">
+                            <button onclick="triggerNamingDialog()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/10 text-sm transition">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" /></svg>
+                                Stamp & Save Document
+                            </button>
+                        </div>
+                    </div>
+
+
+                    <!-- --------------------------------------- -->
+                    <!-- PHONE SCREEN STATE 3: SMART NAMING DIALOG (POPUP OVERLAY) -->
+                    <!-- --------------------------------------- -->
+                    <div id="namingModalOverlay" class="hidden absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex flex-col justify-end">
+                        
+                        <!-- Pop-up container sheet style -->
+                        <div class="bg-slate-900 rounded-t-[35px] border-t border-slate-800 p-6 flex flex-col gap-4 transform translate-y-0 transition-transform duration-300 max-h-[90%] overflow-y-auto no-scrollbar">
+                            
+                            <!-- Header Info -->
+                            <div class="text-center relative">
+                                <div class="w-12 h-1 bg-slate-700 rounded-full mx-auto mb-2"></div>
+                                <h4 class="text-base font-bold text-white">Smart Naming & Sequence</h4>
+                                <p class="text-xs text-slate-400 mt-1">Select prefix. Adjust the manual value below if needed.</p>
+                            </div>
+
+                            <!-- Prefix Selection grid -->
+                            <div class="grid grid-cols-2 gap-2">
+                                <button onclick="selectPrefix('MIGB')" id="btnPrefix_MIGB" class="border border-slate-800 bg-slate-950/50 p-2.5 rounded-xl text-left hover:border-slate-700/80 transition flex items-center justify-between">
+                                    <div>
+                                        <span class="block text-xs font-bold text-white">MIGB</span>
+                                        <span class="text-[9px] text-slate-500" id="previewNum_MIGB">Next: 001</span>
+                                    </div>
+                                    <div class="w-3.5 h-3.5 rounded-full border border-slate-700 flex items-center justify-center" id="radioDot_MIGB"></div>
+                                </button>
+
+                                <button onclick="selectPrefix('CPS')" id="btnPrefix_CPS" class="border border-primary-500/80 bg-primary-500/5 p-2.5 rounded-xl text-left hover:border-slate-700/80 transition flex items-center justify-between">
+                                    <div>
+                                        <span class="block text-xs font-bold text-white">CPS</span>
+                                        <span class="text-[9px] text-slate-500" id="previewNum_CPS">Next: 005</span>
+                                    </div>
+                                    <div class="w-3.5 h-3.5 rounded-full border border-primary-500 flex items-center justify-center" id="radioDot_CPS">
+                                        <div class="w-2 h-2 bg-primary-500 rounded-full"></div>
+                                    </div>
+                                </button>
+
+                                <button onclick="selectPrefix('CPN')" id="btnPrefix_CPN" class="border border-slate-800 bg-slate-950/50 p-2.5 rounded-xl text-left hover:border-slate-700/80 transition flex items-center justify-between">
+                                    <div>
+                                        <span class="block text-xs font-bold text-white">CPN</span>
+                                        <span class="text-[9px] text-slate-500" id="previewNum_CPN">Next: 001</span>
+                                    </div>
+                                    <div class="w-3.5 h-3.5 rounded-full border border-slate-700 flex items-center justify-center" id="radioDot_CPN"></div>
+                                </button>
+
+                                <button onclick="selectPrefix('MSP')" id="btnPrefix_MSP" class="border border-slate-800 bg-slate-950/50 p-2.5 rounded-xl text-left hover:border-slate-700/80 transition flex items-center justify-between">
+                                    <div>
+                                        <span class="block text-xs font-bold text-white">MSP</span>
+                                        <span class="text-[9px] text-slate-500" id="previewNum_MSP">Next: 013</span>
+                                    </div>
+                                    <div class="w-3.5 h-3.5 rounded-full border border-primary-500 flex items-center justify-center" id="radioDot_MSP"></div>
+                                </button>
+                            </div>
+
+                            <!-- Manual Override Box for sequence number -->
+                            <div class="flex flex-col gap-1.5 bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                                <label class="block text-[10px] text-amber-400 font-bold uppercase tracking-wider">Sequence Code Override</label>
+                                <div class="flex gap-2">
+                                    <span class="bg-slate-900 px-3 py-2 rounded-lg border border-slate-700 text-xs text-slate-300 font-mono font-bold flex items-center justify-center min-w-14" id="inputPrefixLabel">CPS</span>
+                                    <input type="text" id="manualSeqNumInput" oninput="handleManualSeqChange()" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono font-bold" placeholder="005">
+                                </div>
+                                <span class="text-[9px] text-slate-500">Edit the number sequence above to override the automatically generated code.</span>
+                            </div>
+
+                            <!-- Live Output File Name Preview Box -->
+                            <div class="bg-slate-950 border border-slate-800 p-3.5 rounded-xl flex flex-col gap-1">
+                                <span class="text-[9px] uppercase font-bold text-slate-400 tracking-wider">Calculated Document Output Filename</span>
+                                <div class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                    <span class="text-xs text-emerald-400 font-mono font-bold truncate" id="liveOutFileName">CPS 005 - 2026-07-06.pdf</span>
+                                </div>
+                            </div>
+
+                            <!-- Action Buttons inside dialog -->
+                            <div class="flex gap-3 pt-1">
+                                <button onclick="closeNamingDialog()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold py-3 rounded-xl text-xs transition">
+                                    Cancel
+                                </button>
+                                <button onclick="saveAndStampPDF()" class="flex-1 bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 rounded-xl text-xs shadow-lg shadow-primary-600/10 transition flex items-center justify-center gap-1">
+                                    <span id="saveBtnText">Confirm & Save</span>
+                                    <svg id="saveBtnLoader" class="hidden animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <!-- --------------------------------------- -->
+                    <!-- PHONE SCREEN STATE 4: SUCCESS AND SHARE -->
+                    <!-- --------------------------------------- -->
+                    <div id="screenSuccess" class="hidden flex-1 flex flex-col justify-between py-6">
+                        
+                        <div class="flex-1 flex flex-col items-center justify-center text-center px-4">
+                            <!-- Animated check circle -->
+                            <div class="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center mb-5 animate-bounce">
+                                <svg class="w-8 h-8 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+                                </svg>
+                            </div>
+                            
+                            <h3 class="text-lg font-bold text-white">Document Stamped!</h3>
+                            <p class="text-xs text-slate-400 mt-2">File saved and counter registered successfully.</p>
+                            
+                            <!-- Saved File Card Details -->
+                            <div class="bg-slate-950/60 border border-slate-800 p-4 rounded-2xl w-full mt-6 text-left flex items-start gap-3">
+                                <div class="bg-primary-500/10 p-2 rounded-xl text-primary-400 border border-primary-500/20">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                </div>
+                                <div class="overflow-hidden">
+                                    <span class="block text-[11px] font-bold text-slate-400 uppercase tracking-widest">Saved File</span>
+                                    <span id="savedFileNameDisplay" class="block text-xs font-mono font-medium text-slate-200 mt-0.5 truncate font-bold">CPS 005 - 2026-07-06.pdf</span>
+                                    <span id="savedFileSizeDisplay" class="block text-[10px] text-emerald-400 mt-0.5">Size: 42.4 KB • Applied Bottom-Left</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Optimized Share Actions Area -->
+                        <div class="flex flex-col gap-2.5 px-2">
+                            <!-- Direct WhatsApp Send Mock -->
+                            <button onclick="simulatedWhatsAppShare()" class="w-full bg-[#25D366] hover:bg-[#20ba5a] text-white font-bold py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-[#25D366]/10 text-sm transition">
+                                <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.456 5.705 1.456h.008c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                                </svg>
+                                Share to WhatsApp
+                            </button>
+
+                            <!-- Native Share / Local Download File Option -->
+                            <button onclick="downloadStampedFile()" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold py-3 px-4 rounded-xl flex items-center justify-center gap-2 text-xs transition border border-slate-700">
+                                <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                Download / Save to Local Device
+                            </button>
+
+                            <!-- Close / Reset Home -->
+                            <button onclick="resetToUpload()" class="w-full bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-semibold py-3.5 rounded-2xl text-xs transition mt-2">
+                                Finish & Stamp Another PDF
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- --------------------------------------- -->
+                    <!-- SIMULATED WHATSAPP TRANSITION OVERLAY -->
+                    <!-- --------------------------------------- -->
+                    <div id="whatsappSimOverlay" class="hidden absolute inset-0 bg-slate-950/95 z-[60] flex flex-col justify-between">
+                        
+                        <!-- Chat Header -->
+                        <div class="bg-[#075e54] p-4 pt-10 flex items-center gap-3 shadow-md">
+                            <button onclick="closeWhatsAppSim()" class="text-white">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+                            </button>
+                            <!-- Avatar icon -->
+                            <div class="w-10 h-10 rounded-full bg-teal-800 border border-teal-600 flex items-center justify-center font-bold text-white text-sm">
+                                AD
+                            </div>
+                            <div>
+                                <h4 class="text-white font-bold text-sm">Approvals Dept</h4>
+                                <span class="text-[10px] text-teal-200">Online • Active Channel</span>
+                            </div>
+                        </div>
+
+                        <!-- Chat message thread -->
+                        <div class="flex-1 bg-[#efeae2] p-4 flex flex-col justify-end gap-3 overflow-y-auto no-scrollbar">
+                            
+                            <!-- Static Contact message -->
+                            <div class="bg-white text-slate-800 text-xs p-3 rounded-2xl rounded-tl-none self-start max-w-[80%] shadow-sm">
+                                Hello, please stamp and verify the latest documents and send them through as soon as completed. Thanks!
+                                <span class="block text-[8px] text-slate-400 text-right mt-1">12:08 PM</span>
+                            </div>
+
+                            <!-- Animated Sending File State -->
+                            <div id="waSendProgress" class="bg-[#d9fdd3] text-slate-800 text-xs p-3 rounded-2xl rounded-tr-none self-end max-w-[85%] shadow-sm border border-[#c1ebd0] flex flex-col gap-2 min-w-[200px]">
+                                <div class="flex items-center gap-2">
+                                    <div class="bg-emerald-600 p-2 rounded-lg text-white">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                    </div>
+                                    <div class="overflow-hidden flex-1">
+                                        <span id="waDocName" class="font-bold text-slate-800 text-xs truncate block">CPS 005 - 2026-07-06.pdf</span>
+                                        <span id="waDocMeta" class="text-[9px] text-slate-500 block">Uploading to WhatsApp chat...</span>
+                                    </div>
+                                </div>
+                                <div class="w-full bg-slate-200 h-1 rounded-full overflow-hidden">
+                                    <div id="waProgressBar" class="bg-emerald-500 h-full w-0 transition-all duration-[2000ms]"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Simulated Keyboard / Input strip -->
+                        <div class="bg-slate-100 p-2.5 flex items-center gap-2 border-t border-slate-200">
+                            <div class="flex-1 bg-white rounded-full py-2 px-4 text-xs text-slate-400 border border-slate-200 shadow-sm">
+                                Document successfully sent
+                            </div>
+                            <button onclick="closeWhatsAppSim()" class="bg-[#128c7e] hover:bg-[#075e54] text-white p-2.5 rounded-full transition shadow shadow-black/10">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            
+            <div class="mt-4 flex gap-4 text-xs text-slate-500">
+                <span>⚡ Built for Android & iOS Platforms</span>
+                <span>•</span>
+                <span>📦 In-Memory SQLite Simulator</span>
+            </div>
+        </section>
+    </main>
+
+    <!-- Global Screen State Script & Actions -->
+    <script>
+        // Set standard system dates
+        const SYSTEM_DATE = "2026-07-06";
+        document.getElementById('targetDateStr').textContent = SYSTEM_DATE;
+
+        // Signature variables
+        let sigCanvas, sigCtx;
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+        let sigColor = "#0f4c81"; // Default matching blue ink
+        let activeSigTab = 'draw';
+        let typedSigText = "Authorized Rep";
+
+        // Stamp Parameters
+        let stampConfigCanvas, stampConfigCtx;
+        let activeStampStyle = "address";
+
+        // PDF state
+        let loadedPdfDoc = null;
+        let pdfBytes = null; // Buffer array
+        let totalPages = 1;
+        let currentPageNum = 1;
+        let originalFileName = "";
+        let finalGeneratedFileName = "";
+        let finalGeneratedPdfBlob = null;
+        let activePrefix = "CPS";
+
+        // Mock Database Stores (Key-Value simulated counter)
+        let memoryStore = {
+            MIGB: 0,
+            CPS: 4,
+            CPN: 0,
+            MSP: 12
+        };
+
+        // Load counters from Local Storage if present to simulate device persistence
+        function initializeDatabase() {
+            const savedStore = localStorage.getItem('STAMP_COUNTERS_STORE');
+            if (savedStore) {
+                memoryStore = JSON.parse(savedStore);
+            } else {
+                localStorage.setItem('STAMP_COUNTERS_STORE', JSON.stringify(memoryStore));
+            }
+            updateDBInputs();
+        }
+
+        function updateDBInputs() {
+            document.getElementById('db_MIGB').value = memoryStore.MIGB;
+            document.getElementById('db_CPS').value = memoryStore.CPS;
+            document.getElementById('db_CPN').value = memoryStore.CPN;
+            document.getElementById('db_MSP').value = memoryStore.MSP;
+        }
+
+        function saveDBOverride(prefix) {
+            const val = parseInt(document.getElementById(`db_${prefix}`).value) || 0;
+            memoryStore[prefix] = val;
+            localStorage.setItem('STAMP_COUNTERS_STORE', JSON.stringify(memoryStore));
+            showToast(`Memory Counter for ${prefix} updated to ${val}.`);
+            
+            // If the current modal is open and prefix is overridden, update calculations
+            if (activePrefix === prefix) {
+                updateNamingPreviews();
+            }
+        }
+
+        function resetAllCounters() {
+            memoryStore = { MIGB: 0, CPS: 0, CPN: 0, MSP: 0 };
+            localStorage.setItem('STAMP_COUNTERS_STORE', JSON.stringify(memoryStore));
+            updateDBInputs();
+            showToast("All persistent database memory counters reset to 0!");
+        }
+
+        // Toggle Stamp Input Fields based on style
+        function toggleStampFields() {
+            activeStampStyle = document.getElementById('stampStyle').value;
+            const addressCont = document.getElementById('addressFieldsContainer');
+            const badgeCont = document.getElementById('badgeFieldsContainer');
+            const targetLabel = document.getElementById('stampTargetStyle');
+
+            if (activeStampStyle === 'address') {
+                addressCont.classList.remove('hidden');
+                badgeCont.classList.add('hidden');
+                targetLabel.textContent = "Menara IGB Stamp";
+            } else {
+                addressCont.classList.add('hidden');
+                badgeCont.classList.remove('hidden');
+                targetLabel.textContent = "Classic Badge Stamp";
+            }
+        }
+
+        function updateDistressLabel() {
+            const distress = document.getElementById('stampDistress').value;
+            document.getElementById('distressValLabel').textContent = `${distress}%`;
+        }
+
+        // Window load setups
+        window.onload = function() {
+            initializeDatabase();
+            setupSignatureCanvas();
+            setupStampDesigner();
+            toggleStampFields();
+            // Render initial stamp mockup
+            renderStampConfigCanvas();
+        };
+
+        // Custom Toast Notifications helper
+        function showToast(message) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = "bg-slate-800 text-slate-100 text-xs font-semibold px-4 py-3 rounded-xl border border-slate-700/80 shadow-2xl flex items-center gap-2 pointer-events-auto animate-slide-in transition-all duration-300 transform translate-x-20 opacity-0";
+            toast.innerHTML = `
+                <span class="w-1.5 h-1.5 rounded-full bg-primary-500"></span>
+                <span>${message}</span>
+            `;
+            container.appendChild(toast);
+            
+            // Trigger animation
+            setTimeout(() => {
+                toast.classList.remove('translate-x-20', 'opacity-0');
+            }, 50);
+
+            // Hide and remove
+            setTimeout(() => {
+                toast.classList.add('translate-x-20', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Tabs switcher for Draw vs Type Signature
+        function switchSigTab(tab) {
+            activeSigTab = tab;
+            const btnDraw = document.getElementById('tabDraw');
+            const btnType = document.getElementById('tabType');
+            const containerDraw = document.getElementById('sigDrawContainer');
+            const containerType = document.getElementById('sigTypeContainer');
+
+            if (tab === 'draw') {
+                btnDraw.className = "flex-1 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-white shadow-sm transition";
+                btnType.className = "flex-1 py-2 text-xs font-semibold rounded-lg text-slate-400 hover:text-white transition";
+                containerDraw.classList.remove('hidden');
+                containerType.classList.add('hidden');
+            } else {
+                btnType.className = "flex-1 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-white shadow-sm transition";
+                btnDraw.className = "flex-1 py-2 text-xs font-semibold rounded-lg text-slate-400 hover:text-white transition";
+                containerType.classList.remove('hidden');
+                containerDraw.classList.add('hidden');
+            }
+        }
+
+        // Setup drawing signature canvas
+        function setupSignatureCanvas() {
+            sigCanvas = document.getElementById('sigCanvas');
+            sigCtx = sigCanvas.getContext('2d');
+
+            // Set canvas size matching computed pixel dimensions
+            sigCanvas.width = sigCanvas.offsetWidth;
+            sigCanvas.height = sigCanvas.offsetHeight;
+
+            // Paint default canvas white with soft instructions
+            clearSigCanvas();
+
+            // Set drawing event listeners
+            sigCanvas.addEventListener('mousedown', startDrawing);
+            sigCanvas.addEventListener('mousemove', draw);
+            sigCanvas.addEventListener('mouseup', stopDrawing);
+            sigCanvas.addEventListener('mouseout', stopDrawing);
+
+            sigCanvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                startDrawing(touch);
+            }, { passive: false });
+            sigCanvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                draw(touch);
+            }, { passive: false });
+            sigCanvas.addEventListener('touchend', stopDrawing);
+        }
+
+        function clearSigCanvas() {
+            sigCtx.fillStyle = '#FFFFFF';
+            sigCtx.fillRect(0, 0, sigCanvas.width, sigCanvas.height);
+            
+            // Draw soft visual placeholder line
+            sigCtx.strokeStyle = '#e2e8f0';
+            sigCtx.lineWidth = 1;
+            sigCtx.setLineDash([5, 5]);
+            sigCtx.beginPath();
+            sigCtx.moveTo(20, sigCanvas.height - 30);
+            sigCtx.lineTo(sigCanvas.width - 20, sigCanvas.height - 30);
+            sigCtx.stroke();
+            sigCtx.setLineDash([]); // Reset line dashes
+
+            sigCtx.fillStyle = '#94a3b8';
+            sigCtx.font = 'italic 10px sans-serif';
+            sigCtx.textAlign = 'center';
+            sigCtx.fillText('Sign on the dotted line', sigCanvas.width / 2, sigCanvas.height - 15);
+        }
+
+        // Mouse/Touch relative positions
+        function getMousePos(canvasDom, touchOrMouseEvent) {
+            const rect = canvasDom.getBoundingClientRect();
+            const clientX = touchOrMouseEvent.clientX || touchOrMouseEvent.pageX;
+            const clientY = touchOrMouseEvent.clientY || touchOrMouseEvent.pageY;
+            return {
+                x: (clientX - rect.left) / (rect.right - rect.left) * canvasDom.width,
+                y: (clientY - rect.top) / (rect.bottom - rect.top) * canvasDom.height
+            };
+        }
+
+        // Start drawing event handler
+        function startDrawing(e) {
+            isDrawing = true;
+            const pos = getMousePos(sigCanvas, e);
+            lastX = pos.x;
+            lastY = pos.y;
+            
+            sigCtx.lineWidth = 3;
+            sigCtx.lineCap = 'round';
+            sigCtx.lineJoin = 'round';
+            sigCtx.strokeStyle = sigColor;
+        }
+
+        // Draw event handler
+        function draw(e) {
+            if (!isDrawing) return;
+            const pos = getMousePos(sigCanvas, e);
+            sigCtx.beginPath();
+            sigCtx.moveTo(lastX, lastY);
+            sigCtx.lineTo(pos.x, pos.y);
+            sigCtx.stroke();
+            lastX = pos.x;
+            lastY = pos.y;
+        }
+
+        // Stop drawing handler
+        function stopDrawing() {
+            isDrawing = false;
+        }
+
+        // Dynamic typing signature preview
+        function updateTypedSignature() {
+            typedSigText = document.getElementById('sigTextInput').value || "Authorized";
+            document.getElementById('sigTextPreview').textContent = typedSigText;
+        }
+
+        // Setup the Dynamic Stamp Canvas Designer
+        function setupStampDesigner() {
+            stampConfigCanvas = document.getElementById('stampConfigCanvas');
+            stampConfigCtx = stampConfigCanvas.getContext('2d');
+        }
+
+        // Simulate rubber stamp texture (distress noise) procedurally
+        function applyStampDistress(ctx, width, height, level) {
+            if (level === 0) return;
+            
+            const density = (level / 100) * 0.45;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; // Speckles of missing ink/paper texture
+            
+            for (let i = 0; i < (width * height * density); i++) {
+                const px = Math.random() * width;
+                const py = Math.random() * height;
+                const r = Math.random() * 1.5;
+                ctx.beginPath();
+                ctx.arc(px, py, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // Render dynamic custom Stamp inside Left Configuration View
+        function renderStampConfigCanvas() {
+            const color = document.getElementById('stampColor').value;
+            const distress = parseInt(document.getElementById('stampDistress').value) || 0;
+            sigColor = color; // Sync colors
+
+            stampConfigCtx.clearRect(0, 0, stampConfigCanvas.width, stampConfigCanvas.height);
+            stampConfigCtx.fillStyle = '#FFFFFF';
+            stampConfigCtx.fillRect(0, 0, stampConfigCanvas.width, stampConfigCanvas.height);
+
+            if (activeStampStyle === 'address') {
+                const textInput = document.getElementById('stampAddressLines').value || "";
+                const lines = textInput.split('\n');
+
+                stampConfigCtx.fillStyle = color;
+                stampConfigCtx.textAlign = 'left';
+
+                lines.forEach((line, index) => {
+                    if (index === 0) {
+                        stampConfigCtx.font = 'bold 15px sans-serif';
+                        stampConfigCtx.fillText(line.toUpperCase(), 15, 28);
+                    } else {
+                        stampConfigCtx.font = '500 10.5px "Plus Jakarta Sans", sans-serif';
+                        stampConfigCtx.fillText(line, 15, 28 + (index * 17));
+                    }
+                });
+
+                stampConfigCtx.strokeStyle = color;
+                stampConfigCtx.lineWidth = 1.5;
+                stampConfigCtx.strokeRect(5, 5, stampConfigCanvas.width - 10, stampConfigCanvas.height - 10);
+
+                stampConfigCtx.fillStyle = '#b91c1c';
+                stampConfigCtx.font = 'bold 9px monospace';
+                stampConfigCtx.fillText(`RECEIVED: ${SYSTEM_DATE}`, 15, 134);
+
+            } else {
+                const badgeText = document.getElementById('stampBadgeText').value || "APPROVED";
+                
+                stampConfigCtx.strokeStyle = color;
+                stampConfigCtx.lineWidth = 3.5;
+                stampConfigCtx.beginPath();
+                stampConfigCtx.roundRect(10, 10, stampConfigCanvas.width - 20, stampConfigCanvas.height - 20, 14);
+                stampConfigCtx.stroke();
+
+                stampConfigCtx.lineWidth = 1;
+                stampConfigCtx.beginPath();
+                stampConfigCtx.roundRect(15, 15, stampConfigCanvas.width - 30, stampConfigCanvas.height - 30, 10);
+                stampConfigCtx.stroke();
+
+                stampConfigCtx.fillStyle = color;
+                stampConfigCtx.beginPath();
+                stampConfigCtx.arc(45, 75, 18, 0, Math.PI * 2);
+                stampConfigCtx.fill();
+
+                stampConfigCtx.strokeStyle = '#FFFFFF';
+                stampConfigCtx.lineWidth = 3;
+                stampConfigCtx.beginPath();
+                stampConfigCtx.moveTo(37, 75);
+                stampConfigCtx.lineTo(42, 80);
+                stampConfigCtx.lineTo(52, 68);
+                stampConfigCtx.stroke();
+
+                stampConfigCtx.fillStyle = color;
+                stampConfigCtx.font = 'bold 15px system-ui, sans-serif';
+                stampConfigCtx.fillText(badgeText.toUpperCase(), 75, 68);
+
+                stampConfigCtx.font = 'bold 11px monospace';
+                stampConfigCtx.fillStyle = '#475569';
+                stampConfigCtx.fillText(`DATE: ${SYSTEM_DATE}`, 75, 92);
+            }
+
+            applyStampDistress(stampConfigCtx, stampConfigCanvas.width, stampConfigCanvas.height, distress);
+        }
+
+        // ---------------------------------------
+        // PDF FILE READING & RENDERING
+        // ---------------------------------------
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file || file.type !== "application/pdf") {
+                showToast("Please import a valid PDF file.");
+                return;
+            }
+            originalFileName = file.name;
+            readAndRenderPDF(file);
+        }
+
+        function loadSamplePDF() {
+            showToast("Generating secure Sample Invoice...");
+            
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({
+                orientation: 'portrait',
+                unit: 'pt',
+                format: 'a4'
+            });
+            
+            doc.setFillColor(15, 23, 42); 
+            doc.rect(0, 0, 595, 80, 'F');
+
+            doc.setTextColor(255, 255, 255);
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(22);
+            doc.text("INVOICE & WORK AGREEMENT", 30, 48);
+
+            doc.setFontSize(9);
+            doc.setFont("helvetica", "normal");
+            doc.text("ORIGINAL STATEMENT", 565, 46, { align: "right" });
+
+            doc.setTextColor(15, 23, 42);
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.text("MIGB CORPORATE GLOBAL LTD", 30, 115);
+            doc.setFont("helvetica", "normal");
+            doc.text("Cyberjaya, Malaysia • contact@migb.com", 30, 130);
+
+            doc.setFont("helvetica", "bold");
+            doc.text("DELIVERED TO:", 380, 115);
+            doc.setFont("helvetica", "normal");
+            doc.text("Apex Tech Ventures Corp.", 380, 130);
+            doc.text("Kuala Lumpur, Malaysia", 380, 145);
+
+            doc.line(30, 175, 565, 175);
+            doc.setFont("helvetica", "bold");
+            doc.text("DESCRIPTION", 35, 192);
+            doc.text("HOURS", 360, 192);
+            doc.text("RATE", 440, 192);
+            doc.text("TOTAL DUE", 505, 192);
+            doc.line(30, 200, 565, 200);
+
+            doc.setFont("helvetica", "normal");
+            doc.text("Enterprise CRM Platform Migration (Q2 Project)", 35, 220);
+            doc.text("40", 360, 220);
+            doc.text("$150.00", 440, 220);
+            doc.text("$6,000.00", 505, 220);
+
+            doc.text("Server Cloud Deployment & Backup Integration", 35, 240);
+            doc.text("12", 360, 240);
+            doc.text("$125.00", 440, 240);
+            doc.text("$1,500.00", 505, 240);
+
+            doc.text("Admin System Dashboard Customization Services", 35, 260);
+            doc.text("8", 360, 260);
+            doc.text("$100.00", 440, 260);
+            doc.text("$800.00", 505, 260);
+
+            doc.line(30, 280, 565, 280);
+
+            doc.setFont("helvetica", "bold");
+            doc.text("TAX STATUS (ZERO RATED):", 340, 310);
+            doc.text("$0.00", 505, 310);
+            doc.text("TOTAL INVOICE BALANCE:", 340, 330);
+            doc.text("$8,300.00", 505, 330);
+
+            doc.setFont("helvetica", "italic");
+            doc.setFontSize(8.5);
+            doc.setTextColor(100, 116, 139);
+            doc.text("Notice: Stamping and official rep signature is required for processing accounts payable.", 30, 420);
+            doc.text("The stamp widget will be embedded in the bottom-left coordinate of this PDF document.", 30, 435);
+
+            const pdfBlob = doc.output('blob');
+            originalFileName = "INV_APEX_DRAFT.pdf";
+            readAndRenderPDF(pdfBlob);
+        }
+
+        function readAndRenderPDF(fileOrBlob) {
+            const reader = new FileReader();
+            reader.onload = function() {
+                pdfBytes = new Uint8Array(this.result);
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+                
+                pdfjsLib.getDocument({ data: pdfBytes }).promise.then(function(pdfDoc) {
+                    loadedPdfDoc = pdfDoc;
+                    totalPages = pdfDoc.numPages;
+                    currentPageNum = totalPages; 
+                    
+                    renderActivePage();
+                    
+                    document.getElementById('screenUpload').classList.add('hidden');
+                    document.getElementById('screenEdit').classList.remove('hidden');
+                    document.getElementById('currentFileName').textContent = originalFileName;
+                }).catch(err => {
+                    console.error("PDF Parsing Failure: ", err);
+                    showToast("Failed to parse PDF document.");
+                });
+            };
+            reader.readAsArrayBuffer(fileOrBlob);
+        }
+
+        function renderActivePage() {
+            if (!loadedPdfDoc) return;
+
+            loadedPdfDoc.getPage(currentPageNum).then(function(page) {
+                const canvas = document.getElementById('pdfPreviewCanvas');
+                const ctx = canvas.getContext('2d');
+                
+                const viewport = page.getViewport({ scale: 1.2 });
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+
+                const renderContext = {
+                    canvasContext: ctx,
+                    viewport: viewport
+                };
+
+                page.render(renderContext).promise.then(function() {
+                    document.getElementById('pageNumDisplay').textContent = `Page ${currentPageNum} of ${totalPages}`;
+                    document.getElementById('navIndicator').textContent = `${currentPageNum}/${totalPages}`;
+                    
+                    const navControls = document.getElementById('pageNavControls');
+                    if (totalPages > 1) {
+                        navControls.classList.remove('hidden');
+                    } else {
+                        navControls.classList.add('hidden');
+                    }
+                });
+            });
+        }
+
+        function navigatePage(direction) {
+            const next = currentPageNum + direction;
+            if (next >= 1 && next <= totalPages) {
+                currentPageNum = next;
+                renderActivePage();
+            }
+        }
+
+        function resetToUpload() {
+            document.getElementById('screenUpload').classList.remove('hidden');
+            document.getElementById('screenEdit').classList.add('hidden');
+            document.getElementById('screenSuccess').classList.add('hidden');
+            document.getElementById('namingModalOverlay').classList.add('hidden');
+            loadedPdfDoc = null;
+            pdfBytes = null;
+        }
+
+        // ---------------------------------------
+        // NAMING DIALOG AND AUTO-INCREMENTING
+        // ---------------------------------------
+
+        function triggerNamingDialog() {
+            // Preset manual override fields before showing modal
+            document.getElementById('inputPrefixLabel').textContent = activePrefix;
+            
+            const nextVal = (memoryStore[activePrefix] || 0) + 1;
+            document.getElementById('manualSeqNumInput').value = String(nextVal).padStart(3, '0');
+            
+            updateNamingPreviews();
+            document.getElementById('namingModalOverlay').classList.remove('hidden');
+        }
+
+        function closeNamingDialog() {
+            document.getElementById('namingModalOverlay').classList.add('hidden');
+        }
+
+        // Realtime file-preview and numbering calculator
+        function updateNamingPreviews() {
+            for (const key of ['MIGB', 'CPS', 'CPN', 'MSP']) {
+                const val = (memoryStore[key] || 0) + 1;
+                const formatted = String(val).padStart(3, '0');
+                document.getElementById(`previewNum_${key}`).textContent = `Next: ${formatted}`;
+            }
+
+            // Grab override value
+            const manualVal = document.getElementById('manualSeqNumInput').value || "001";
+            
+            // Format example: "CPS 005 - 2026-07-06.pdf"
+            finalGeneratedFileName = `${activePrefix} ${manualVal} - ${SYSTEM_DATE}.pdf`;
+            document.getElementById('liveOutFileName').textContent = finalGeneratedFileName;
+
+            // Update top right simulator preview target label (representing sequence stamp)
+            document.getElementById('topRightPreviewLabel').textContent = `${activePrefix} - ${manualVal}`;
+        }
+
+        function selectPrefix(prefix) {
+            const oldBtn = document.getElementById(`btnPrefix_${activePrefix}`);
+            const oldDot = document.getElementById(`radioDot_${activePrefix}`);
+            if (oldBtn) {
+                oldBtn.className = "border border-slate-800 bg-slate-950/50 p-2.5 rounded-xl text-left hover:border-slate-700/80 transition flex items-center justify-between";
+                oldDot.className = "w-3.5 h-3.5 rounded-full border border-slate-700 flex items-center justify-center";
+                oldDot.innerHTML = "";
+            }
+
+            activePrefix = prefix;
+
+            const newBtn = document.getElementById(`btnPrefix_${activePrefix}`);
+            const newDot = document.getElementById(`radioDot_${activePrefix}`);
+            if (newBtn) {
+                newBtn.className = "border border-primary-500/80 bg-primary-500/5 p-2.5 rounded-xl text-left hover:border-slate-700/80 transition flex items-center justify-between";
+                newDot.className = "w-3.5 h-3.5 rounded-full border border-primary-500 flex items-center justify-center";
+                newDot.innerHTML = '<div class="w-2 h-2 bg-primary-500 rounded-full"></div>';
+            }
+
+            // Update Prefix display label on manual input box
+            document.getElementById('inputPrefixLabel').textContent = prefix;
+
+            // Auto-calculate default value for this prefix and load to text field
+            const nextVal = (memoryStore[prefix] || 0) + 1;
+            document.getElementById('manualSeqNumInput').value = String(nextVal).padStart(3, '0');
+
+            updateNamingPreviews();
+        }
+
+        function handleManualSeqChange() {
+            updateNamingPreviews();
+        }
+
+        // ---------------------------------------
+        // PDF BYTE PROCESSING & DOWNLOADING
+        // ---------------------------------------
+
+        async function saveAndStampPDF() {
+            document.getElementById('saveBtnText').classList.add('hidden');
+            document.getElementById('saveBtnLoader').classList.remove('hidden');
+
+            setTimeout(async () => {
+                try {
+                    const { jsPDF } = window.jspdf;
+                    
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    const page = await loadedPdfDoc.getPage(currentPageNum);
+                    const viewport = page.getViewport({ scale: 2.0 });
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    
+                    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+                    // 1. EXTRACT STAMP PRESETS
+                    const stampColor = document.getElementById('stampColor').value;
+                    const distress = parseInt(document.getElementById('stampDistress').value) || 0;
+                    const manualSeqVal = document.getElementById('manualSeqNumInput').value || "001";
+
+                    // 2. DRAW BOTTOM-LEFT PRIMARY STAMP (BUILDING MANAGEMENT OR BADGE)
+                    const targetX = 35;
+                    const targetY = canvas.height - 230; 
+
+                    if (activeStampStyle === 'address') {
+                        const textInput = document.getElementById('stampAddressLines').value || "";
+                        const lines = textInput.split('\n');
+
+                        // Save Context
+                        ctx.save();
+                        
+                        // Set stamp text properties
+                        ctx.fillStyle = stampColor;
+                        ctx.textAlign = 'left';
+
+                        lines.forEach((line, index) => {
+                            if (index === 0) {
+                                ctx.font = 'bold 24px sans-serif';
+                                ctx.fillText(line.toUpperCase(), targetX + 15, targetY + 38);
+                            } else {
+                                ctx.font = '600 15px "Plus Jakarta Sans", sans-serif';
+                                ctx.fillText(line, targetX + 15, targetY + 38 + (index * 24));
+                            }
+                        });
+
+                        // Draw stamp frame
+                        ctx.strokeStyle = stampColor;
+                        ctx.lineWidth = 2.5;
+                        ctx.strokeRect(targetX, targetY, 410, 190);
+
+                        // Overlay red received indicator banner
+                        ctx.fillStyle = '#b91c1c';
+                        ctx.font = 'bold 12.5px monospace';
+                        ctx.fillText(`RECEIVED: ${SYSTEM_DATE}`, targetX + 15, targetY + 175);
+
+                        ctx.restore();
+                        
+                        // Apply Distress to rubber stamp impression
+                        ctx.save();
+                        ctx.translate(targetX, targetY);
+                        applyStampDistress(ctx, 410, 190, distress);
+                        ctx.restore();
+
+                        // Draw signature physically ABOVE the stamp block
+                        ctx.save();
+                        if (activeSigTab === 'draw') {
+                            const sigDataImg = new Image();
+                            await new Promise((resolve) => {
+                                sigDataImg.onload = resolve;
+                                sigDataImg.src = sigCanvas.toDataURL();
+                            });
+                            ctx.globalAlpha = 1.0; 
+                            ctx.drawImage(sigDataImg, targetX + 40, targetY - 75, 175, 65);
+                        } else {
+                            ctx.fillStyle = '#1e3a8a'; 
+                            ctx.font = 'italic 23px "Playwrite AU VIC", cursive, sans-serif';
+                            ctx.fillText(typedSigText, targetX + 45, targetY - 25);
+                        }
+                        ctx.restore();
+
+                    } else {
+                        // Badge stamp style
+                        const badgeText = document.getElementById('stampBadgeText').value || "APPROVED";
+                        
+                        ctx.save();
+                        ctx.strokeStyle = stampColor;
+                        ctx.lineWidth = 5;
+                        ctx.beginPath();
+                        ctx.roundRect(targetX, targetY, 320, 160, 18);
+                        ctx.stroke();
+
+                        ctx.lineWidth = 1.5;
+                        ctx.beginPath();
+                        ctx.roundRect(targetX + 6, targetY + 6, 308, 148, 14);
+                        ctx.stroke();
+
+                        ctx.fillStyle = stampColor;
+                        ctx.beginPath();
+                        ctx.arc(targetX + 55, targetY + 80, 24, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        ctx.strokeStyle = '#FFFFFF';
+                        ctx.lineWidth = 4.5;
+                        ctx.beginPath();
+                        ctx.moveTo(targetX + 45, targetY + 80);
+                        ctx.lineTo(targetX + 52, targetY + 87);
+                        ctx.lineTo(targetX + 67, targetY + 71);
+                        ctx.stroke();
+
+                        ctx.fillStyle = stampColor;
+                        ctx.font = 'bold 22px system-ui, sans-serif';
+                        ctx.fillText(badgeText.toUpperCase(), targetX + 95, targetY + 70);
+
+                        ctx.font = 'bold 14px monospace';
+                        ctx.fillStyle = '#475569';
+                        ctx.fillText(`DATE: ${SYSTEM_DATE}`, targetX + 95, targetY + 102);
+
+                        ctx.restore();
+                        
+                        // Apply Distress to badge
+                        ctx.save();
+                        ctx.translate(targetX, targetY);
+                        applyStampDistress(ctx, 320, 160, distress);
+                        ctx.restore();
+
+                        // Draw the signature physically ABOVE the badge stamp
+                        ctx.save();
+                        if (activeSigTab === 'draw') {
+                            const sigDataImg = new Image();
+                            await new Promise((resolve) => {
+                                sigDataImg.onload = resolve;
+                                sigDataImg.src = sigCanvas.toDataURL();
+                            });
+                            ctx.globalAlpha = 1.0;
+                            ctx.drawImage(sigDataImg, targetX + 40, targetY - 65, 160, 48);
+                        } else {
+                            ctx.fillStyle = '#1e3a8a';
+                            ctx.font = 'italic 21px "Playwrite AU VIC", cursive, sans-serif';
+                            ctx.fillText(typedSigText, targetX + 45, targetY - 20);
+                        }
+                        ctx.restore();
+                    }
+
+                    // 3. DRAW TOP-RIGHT REFERENCE SEQUENCE STAMP
+                    const topWidth = 240;
+                    const topHeight = 65; 
+                    const topX = canvas.width - topWidth - 35;
+                    const topY = 35;
+
+                    ctx.save();
+                    ctx.strokeStyle = stampColor;
+                    ctx.lineWidth = 3.5;
+                    ctx.beginPath();
+                    ctx.roundRect(topX, topY, topWidth, topHeight, 10);
+                    ctx.stroke();
+
+                    // Inner border
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.roundRect(topX + 4, topY + 4, topWidth - 8, topHeight - 8, 7);
+                    ctx.stroke();
+
+                    // Print Sequence ID centered vertically (Official ID line removed)
+                    ctx.fillStyle = stampColor;
+                    ctx.textAlign = 'center';
+                    ctx.font = 'bold 24px "JetBrains Mono", monospace, sans-serif';
+                    ctx.fillText(`${activePrefix} - ${manualSeqVal}`, topX + (topWidth / 2), topY + 41);
+                    ctx.restore();
+
+                    // Apply distress texture mask to the Top Right stamp
+                    ctx.save();
+                    ctx.translate(topX, topY);
+                    applyStampDistress(ctx, topWidth, topHeight, distress);
+                    ctx.restore();
+
+
+                    // 4. GENERATE MULTI-PAGE EXPORT BUFFER
+                    const finalDoc = new jsPDF({
+                        orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
+                        unit: 'pt',
+                        format: [canvas.width, canvas.height]
+                    });
+
+                    for (let i = 1; i <= totalPages; i++) {
+                        if (i > 1) finalDoc.addPage([canvas.width, canvas.height]);
+                        
+                        if (i === currentPageNum) {
+                            const stampedPageImg = canvas.toDataURL('image/jpeg', 0.95);
+                            finalDoc.addImage(stampedPageImg, 'JPEG', 0, 0, canvas.width, canvas.height);
+                        } else {
+                            const otherPage = await loadedPdfDoc.getPage(i);
+                            const otherCanvas = document.createElement('canvas');
+                            const otherCtx = otherCanvas.getContext('2d');
+                            otherCanvas.width = canvas.width;
+                            otherCanvas.height = canvas.height;
+                            await otherPage.render({ canvasContext: otherCtx, viewport: page.getViewport({ scale: 2.0 }) }).promise;
+                            
+                            const pageImg = otherCanvas.toDataURL('image/jpeg', 0.95);
+                            finalDoc.addImage(pageImg, 'JPEG', 0, 0, canvas.width, canvas.height);
+                        }
+                    }
+
+                    finalGeneratedPdfBlob = finalDoc.output('blob');
+
+                    // 5. SMART CALIBRATION DATABASE ADJUSTMENT
+                    const intRep = parseInt(manualSeqVal);
+                    if (!isNaN(intRep)) {
+                        memoryStore[activePrefix] = intRep;
+                    } else {
+                        memoryStore[activePrefix] = (memoryStore[activePrefix] || 0) + 1;
+                    }
+                    localStorage.setItem('STAMP_COUNTERS_STORE', JSON.stringify(memoryStore));
+                    updateDBInputs();
+
+                    // Trigger success page displays
+                    document.getElementById('savedFileNameDisplay').textContent = finalGeneratedFileName;
+                    const fileSizeKb = (finalGeneratedPdfBlob.size / 1024).toFixed(1);
+                    document.getElementById('savedFileSizeDisplay').textContent = `Size: ${fileSizeKb} KB • Stamped top-right and bottom-left`;
+
+                    // Reset state visibility
+                    document.getElementById('saveBtnText').classList.remove('hidden');
+                    document.getElementById('saveBtnLoader').classList.add('hidden');
+                    document.getElementById('namingModalOverlay').classList.add('hidden');
+                    document.getElementById('screenEdit').classList.add('hidden');
+                    document.getElementById('screenSuccess').classList.remove('hidden');
+
+                    showToast(`Successfully saved as ${finalGeneratedFileName}!`);
+
+                } catch (err) {
+                    console.error("PDF Compiling Error: ", err);
+                    showToast("Error processing PDF: " + err.message);
+                    document.getElementById('saveBtnText').classList.remove('hidden');
+                    document.getElementById('saveBtnLoader').classList.add('hidden');
+                }
+            }, 800);
+        }
+
+        function downloadStampedFile() {
+            if (!finalGeneratedPdfBlob) return;
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(finalGeneratedPdfBlob);
+            link.download = finalGeneratedFileName;
+            link.click();
+            showToast("Document downloaded to local storage!");
+        }
+
+        // ---------------------------------------
+        // WHATSAPP SHARE ANIMATED SIMULATOR
+        // ---------------------------------------
+
+        function simulatedWhatsAppShare() {
+            document.getElementById('waDocName').textContent = finalGeneratedFileName;
+            const fileSizeKb = (finalGeneratedPdfBlob.size / 1024).toFixed(1);
+            document.getElementById('waDocMeta').textContent = `${fileSizeKb} KB • PDF Document`;
+            
+            document.getElementById('whatsappSimOverlay').classList.remove('hidden');
+            
+            const bar = document.getElementById('waProgressBar');
+            bar.style.width = "0%";
+            setTimeout(() => {
+                bar.style.width = "100%";
+            }, 100);
+
+            setTimeout(() => {
+                document.getElementById('waDocMeta').innerHTML = 'Sent • <span class="text-blue-500 font-bold">✓✓ Read</span>';
+                showToast("Document transmitted securely via WhatsApp simulator!");
+            }, 2100);
+        }
+
+        function closeWhatsAppSim() {
+            document.getElementById('whatsappSimOverlay').classList.add('hidden');
+        }
+    </script>
+    
+    <!-- PWA Service Worker Registration Script -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('sw.js')
+            .then(reg => console.log('Service Worker registered successfully!', reg))
+            .catch(err => console.log('Service Worker registration failed:', err));
+        });
+      }
+    </script>
+</body>
+</html>
