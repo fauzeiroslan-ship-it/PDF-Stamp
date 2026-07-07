@@ -1446,7 +1446,7 @@ Tel: 03-2287 9686 Fax: 03-2287 9698</textarea>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('sw.js')
+          navigator.serviceWorker.register('./sw.js')
             .then(reg => console.log('Service Worker registered successfully!', reg))
             .catch(err => console.log('Service Worker registration failed:', err));
         });
